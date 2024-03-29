@@ -1,3 +1,6 @@
+// Original location: https://github.com/ValveSoftware/GameNetworkingSockets/tree/master/examples
+// In this example, I have added some comments to understand the code better (see `MY:` comments).
+
 //====== Copyright Valve Corporation, All rights reserved. ====================
 //
 // Example client/server chat application using SteamNetworkingSockets
@@ -239,12 +242,15 @@ public:
         SteamNetworkingIPAddr serverLocalAddr;
         serverLocalAddr.Clear();
         serverLocalAddr.m_port = nPort;
+
         SteamNetworkingConfigValue_t opt;
         opt.SetPtr(
             k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged, (void*)SteamNetConnectionStatusChangedCallback);
+
         m_hListenSock = m_pInterface->CreateListenSocketIP(serverLocalAddr, 1, &opt);
         if (m_hListenSock == k_HSteamListenSocket_Invalid)
             FatalError("Failed to listen on port %d", nPort);
+
         m_hPollGroup = m_pInterface->CreatePollGroup();
         if (m_hPollGroup == k_HSteamNetPollGroup_Invalid)
             FatalError("Failed to listen on port %d", nPort);
@@ -252,9 +258,12 @@ public:
 
         while (!g_bQuit)
         {
-            PollIncomingMessages();
-            PollConnectionStateChanges();
-            PollLocalUserInput();
+            PollIncomingMessages(); // MY: Recieve messages from clients until the ReceiveMessagesOnPollGroup is empty.
+            PollConnectionStateChanges(); // MY: Run all callbacks including OnSteamNetConnectionStatusChanged.
+                                          // - Case 01: Detect problems with connections and close them localy by API.
+                                          // - Case 02: AcceptConnection, SetConnectionPollGroup, Create Nickname, Send
+                                          //   Welcome message.
+            PollLocalUserInput(); // MY: Check if the user has entered `/quit` command and set the g_bQuit flag.
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
 
@@ -266,7 +275,7 @@ public:
             // connection close reason as a place to send final data.  However,
             // that's usually best left for more diagnostic/debug text not actual
             // protocol strings.
-            SendStringToClient(it.first, "Server is shutting down.  Goodbye.");
+            SendStringToClient(it.first, "Server is shutting down. Goodbye.");
 
             // Close the connection.  We use "linger mode" to ask SteamNetworkingSockets
             // to flush this out and close gracefully.
@@ -769,7 +778,7 @@ int main(int argc, const char* argv[])
 
     // Create client and server sockets
     InitSteamDatagramConnectionSockets();
-    LocalUserInput_Init();
+    LocalUserInput_Init(); // MY: Start the thread to read the user input.
 
     if (bClient)
     {
