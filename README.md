@@ -1,3 +1,8 @@
+Original location: https://github.com/ValveSoftware/GameNetworkingSockets/tree/master/examples
+In this example, I have added some comments to understand the code better (see `MY:` comments).
+
+***
+
 The purpose of this project is to demonstrate/test a project that pulls in
 GameNetworkingSockets and its dependencies entirely using vcpkg.
 
