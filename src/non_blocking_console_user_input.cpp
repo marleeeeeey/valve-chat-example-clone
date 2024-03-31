@@ -1,35 +1,12 @@
 #include "non_blocking_console_user_input.h"
 #include <local_utils.h>
+#include <memory>
+#include <mutex>
+#include <thread>
 
-NonBlockingConsoleUserInput::NonBlockingConsoleUserInput(std::atomic<bool>& quitFlag) : quitFlag(quitFlag)
+NonBlockingConsoleUserInput::NonBlockingConsoleUserInput(std::atomic<bool>& quitFlag_) : quitFlag(quitFlag_)
 {
-    LocalUserInput_Init();
-}
-
-NonBlockingConsoleUserInput::~NonBlockingConsoleUserInput()
-{
-    LocalUserInput_Kill();
-}
-
-bool NonBlockingConsoleUserInput::LocalUserInput_GetNext(std::string& result)
-{
-    bool got_input = false;
-    mutexUserInputQueue.lock();
-    while (!queueUserInput.empty() && !got_input)
-    {
-        result = queueUserInput.front();
-        queueUserInput.pop();
-        LocalUtils::ltrim(result);
-        LocalUtils::rtrim(result);
-        got_input = !result.empty(); // ignore blank lines
-    }
-    mutexUserInputQueue.unlock();
-    return got_input;
-}
-
-void NonBlockingConsoleUserInput::LocalUserInput_Init()
-{
-    pThreadUserInput = new std::thread(
+    pThreadUserInput = std::make_unique<std::thread>(
         [this]()
         {
             while (!quitFlag)
@@ -53,16 +30,27 @@ void NonBlockingConsoleUserInput::LocalUserInput_Init()
         });
 }
 
-void NonBlockingConsoleUserInput::LocalUserInput_Kill()
+NonBlockingConsoleUserInput::~NonBlockingConsoleUserInput()
 {
-    // Does not work.  We won't clean up, we'll just nuke the process.
-    //	g_bQuit = true;
-    //	_close( fileno( stdin ) );
-    //
-    //	if ( s_pThreadUserInput )
-    //	{
-    //		s_pThreadUserInput->join();
-    //		delete s_pThreadUserInput;
-    //		s_pThreadUserInput = nullptr;
-    //	}
+    quitFlag = true;
+
+    if (!pThreadUserInput)
+        return;
+
+    pThreadUserInput->join();
+}
+
+bool NonBlockingConsoleUserInput::GetNext(std::string& result)
+{
+    bool got_input = false;
+    std::lock_guard<std::mutex> lock{mutexUserInputQueue};
+    while (!queueUserInput.empty() && !got_input)
+    {
+        result = queueUserInput.front();
+        queueUserInput.pop();
+        LocalUtils::ltrim(result);
+        LocalUtils::rtrim(result);
+        got_input = !result.empty(); // ignore blank lines
+    }
+    return got_input;
 }

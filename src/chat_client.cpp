@@ -59,7 +59,7 @@ void ChatClient::PollIncomingMessages()
 void ChatClient::PollLocalUserInput()
 {
     std::string cmd;
-    while (!quitFlag && nonBlockingConsoleUserInput.LocalUserInput_GetNext(cmd))
+    while (!quitFlag && nonBlockingConsoleUserInput.GetNext(cmd))
     {
         // Check for known commands
         if (strcmp(cmd.c_str(), "/quit") == 0)

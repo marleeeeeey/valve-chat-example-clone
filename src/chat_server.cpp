@@ -141,7 +141,7 @@ void ChatServer::PollIncomingMessages()
 void ChatServer::PollLocalUserInput()
 {
     std::string cmd;
-    while (!quitFlag && nonBlockingConsoleUserInput.LocalUserInput_GetNext(cmd))
+    while (!quitFlag && nonBlockingConsoleUserInput.GetNext(cmd))
     {
         if (strcmp(cmd.c_str(), "/quit") == 0)
         {

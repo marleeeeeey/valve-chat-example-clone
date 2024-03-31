@@ -23,8 +23,6 @@ public:
     static void NukeProcess(int rc);
 
     static void DebugOutput(ESteamNetworkingSocketsDebugOutputType eType, const char* pszMsg);
-
     static void FatalError(const char* fmt, ...);
-
     static void Printf(const char* fmt, ...);
 };
