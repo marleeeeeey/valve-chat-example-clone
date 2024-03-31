@@ -19,10 +19,10 @@ int main(int argc, const char* argv[])
     {
         AppOptions options = ReadAppOptions(argc, argv);
 
-        // Create client and server sockets
+        // Initialize SteamNetworkingSockets
         SteamNetworkingInitRAII steamNetworkingInitRAII;
 
-        // MY: Start the thread to read the user input.
+        // Start the thread to read the user input.
         std::atomic<bool> appQuitFlag = {};
         NonBlockingConsoleUserInput nonBlockingConsoleUserInput(appQuitFlag);
 
@@ -38,8 +38,5 @@ int main(int argc, const char* argv[])
         }
     }
 
-    // Ug, why is there no simple solution for portable, non-blocking console user input?
-    // Just nuke the process
-    // LocalUserInput_Kill();
     LocalUtils::NukeProcess(0);
 }
