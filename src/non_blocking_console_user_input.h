@@ -13,8 +13,8 @@ class NonBlockingConsoleUserInput
 {
     std::mutex mutexUserInputQueue;
     std::queue<std::string> queueUserInput;
-    std::thread* s_pThreadUserInput = nullptr;
-    std::atomic<bool>& g_bQuit;
+    std::thread* pThreadUserInput = nullptr;
+    std::atomic<bool>& quitFlag;
 public:
     NonBlockingConsoleUserInput(std::atomic<bool>& quitFlag);
     ~NonBlockingConsoleUserInput();

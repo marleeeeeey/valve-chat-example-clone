@@ -1,7 +1,7 @@
 #include "non_blocking_console_user_input.h"
-#include "local_utils.h"
+#include <local_utils.h>
 
-NonBlockingConsoleUserInput::NonBlockingConsoleUserInput(std::atomic<bool>& quitFlag) : g_bQuit(quitFlag)
+NonBlockingConsoleUserInput::NonBlockingConsoleUserInput(std::atomic<bool>& quitFlag) : quitFlag(quitFlag)
 {
     LocalUserInput_Init();
 }
@@ -29,19 +29,19 @@ bool NonBlockingConsoleUserInput::LocalUserInput_GetNext(std::string& result)
 
 void NonBlockingConsoleUserInput::LocalUserInput_Init()
 {
-    s_pThreadUserInput = new std::thread(
+    pThreadUserInput = new std::thread(
         [this]()
         {
-            while (!g_bQuit)
+            while (!quitFlag)
             {
                 char szLine[4000];
                 if (!fgets(szLine, sizeof(szLine), stdin))
                 {
                     // Well, you would hope that you could close the handle
                     // from the other thread to trigger this.  Nope.
-                    if (g_bQuit)
+                    if (quitFlag)
                         return;
-                    g_bQuit = true;
+                    quitFlag = true;
                     LocalUtils::Printf("Failed to read on stdin, quitting\n");
                     break;
                 }
