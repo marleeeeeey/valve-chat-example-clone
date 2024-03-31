@@ -5,14 +5,11 @@
 //
 // Example client/server chat application using SteamNetworkingSockets
 
-#include <algorithm>
 #include <assert.h>
+#include <atomic>
 #include <cctype>
 #include <chrono>
 #include <map>
-#include <mutex>
-#include <queue>
-#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 #include <string>
@@ -31,66 +28,14 @@
 #include <unistd.h>
 #endif
 
+#include "local_utils.h"
+#include "non_blocking_console_user_input.h"
+
 /////////////////////////////////////////////////////////////////////////////
 //
 // Common stuff
 //
 /////////////////////////////////////////////////////////////////////////////
-
-bool g_bQuit = false;
-
-SteamNetworkingMicroseconds g_logTimeZero;
-
-// We do this because I won't want to figure out how to cleanly shut
-// down the thread that is reading from stdin.
-static void NukeProcess(int rc)
-{
-#ifdef _WIN32
-    ExitProcess(rc);
-#else
-    (void)rc; // Unused formal parameter
-    kill(getpid(), SIGKILL);
-#endif
-}
-
-static void DebugOutput(ESteamNetworkingSocketsDebugOutputType eType, const char* pszMsg)
-{
-    SteamNetworkingMicroseconds time = SteamNetworkingUtils()->GetLocalTimestamp() - g_logTimeZero;
-    printf("%10.6f %s\n", time * 1e-6, pszMsg);
-    fflush(stdout);
-    if (eType == k_ESteamNetworkingSocketsDebugOutputType_Bug)
-    {
-        fflush(stdout);
-        fflush(stderr);
-        NukeProcess(1);
-    }
-}
-
-static void FatalError(const char* fmt, ...)
-{
-    char text[2048];
-    va_list ap;
-    va_start(ap, fmt);
-    vsprintf(text, fmt, ap);
-    va_end(ap);
-    char* nl = strchr(text, '\0') - 1;
-    if (nl >= text && *nl == '\n')
-        *nl = '\0';
-    DebugOutput(k_ESteamNetworkingSocketsDebugOutputType_Bug, text);
-}
-
-static void Printf(const char* fmt, ...)
-{
-    char text[2048];
-    va_list ap;
-    va_start(ap, fmt);
-    vsprintf(text, fmt, ap);
-    va_end(ap);
-    char* nl = strchr(text, '\0') - 1;
-    if (nl >= text && *nl == '\n')
-        *nl = '\0';
-    DebugOutput(k_ESteamNetworkingSocketsDebugOutputType_Msg, text);
-}
 
 class SteamNetworkingInitRAII
 {
@@ -119,8 +64,9 @@ public:
 #endif
 
         // TODO: remove it from here.
-        g_logTimeZero = SteamNetworkingUtils()->GetLocalTimestamp();
-        SteamNetworkingUtils()->SetDebugOutputFunction(k_ESteamNetworkingSocketsDebugOutputType_Msg, DebugOutput);
+        LocalUtils::g_logTimeZero = SteamNetworkingUtils()->GetLocalTimestamp();
+        SteamNetworkingUtils()->SetDebugOutputFunction(
+            k_ESteamNetworkingSocketsDebugOutputType_Msg, LocalUtils::DebugOutput);
     }
 
     ~SteamNetworkingInitRAII()
@@ -142,99 +88,19 @@ public:
 
 /////////////////////////////////////////////////////////////////////////////
 //
-// Non-blocking console user input.  Sort of.
-// Why is this so hard?
-//
-/////////////////////////////////////////////////////////////////////////////
-
-std::mutex mutexUserInputQueue;
-std::queue<std::string> queueUserInput;
-
-std::thread* s_pThreadUserInput = nullptr;
-
-void LocalUserInput_Init()
-{
-    s_pThreadUserInput = new std::thread(
-        []()
-        {
-            while (!g_bQuit)
-            {
-                char szLine[4000];
-                if (!fgets(szLine, sizeof(szLine), stdin))
-                {
-                    // Well, you would hope that you could close the handle
-                    // from the other thread to trigger this.  Nope.
-                    if (g_bQuit)
-                        return;
-                    g_bQuit = true;
-                    Printf("Failed to read on stdin, quitting\n");
-                    break;
-                }
-
-                mutexUserInputQueue.lock();
-                queueUserInput.push(std::string(szLine));
-                mutexUserInputQueue.unlock();
-            }
-        });
-}
-
-void LocalUserInput_Kill()
-{
-    // Does not work.  We won't clean up, we'll just nuke the process.
-    //	g_bQuit = true;
-    //	_close( fileno( stdin ) );
-    //
-    //	if ( s_pThreadUserInput )
-    //	{
-    //		s_pThreadUserInput->join();
-    //		delete s_pThreadUserInput;
-    //		s_pThreadUserInput = nullptr;
-    //	}
-}
-
-// You really gotta wonder what kind of pedantic garbage was
-// going through the minds of people who designed std::string
-// that they decided not to include trim.
-// https://stackoverflow.com/questions/216823/whats-the-best-way-to-trim-stdstring
-
-// trim from start (in place)
-static inline void ltrim(std::string& s)
-{
-    s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](int ch) { return !std::isspace(ch); }));
-}
-
-// trim from end (in place)
-static inline void rtrim(std::string& s)
-{
-    s.erase(std::find_if(s.rbegin(), s.rend(), [](int ch) { return !std::isspace(ch); }).base(), s.end());
-}
-
-// Read the next line of input from stdin, if anything is available.
-bool LocalUserInput_GetNext(std::string& result)
-{
-    bool got_input = false;
-    mutexUserInputQueue.lock();
-    while (!queueUserInput.empty() && !got_input)
-    {
-        result = queueUserInput.front();
-        queueUserInput.pop();
-        ltrim(result);
-        rtrim(result);
-        got_input = !result.empty(); // ignore blank lines
-    }
-    mutexUserInputQueue.unlock();
-    return got_input;
-}
-
-/////////////////////////////////////////////////////////////////////////////
-//
 // ChatServer
 //
 /////////////////////////////////////////////////////////////////////////////
 
 class ChatServer
 {
+    NonBlockingConsoleUserInput& nonBlockingConsoleUserInput;
+    std::atomic<bool>& g_bQuit;
 public:
+    ChatServer(NonBlockingConsoleUserInput& nonBlockingConsoleUserInput, std::atomic<bool>& g_bQuit)
+      : nonBlockingConsoleUserInput(nonBlockingConsoleUserInput), g_bQuit(g_bQuit)
+    {}
+
     void Run(uint16 nPort)
     {
         // Select instance to use.  For now we'll always use the default.
@@ -252,12 +118,12 @@ public:
 
         m_hListenSock = m_pInterface->CreateListenSocketIP(serverLocalAddr, 1, &opt);
         if (m_hListenSock == k_HSteamListenSocket_Invalid)
-            FatalError("Failed to listen on port %d", nPort);
+            LocalUtils::FatalError("Failed to listen on port %d", nPort);
 
         m_hPollGroup = m_pInterface->CreatePollGroup();
         if (m_hPollGroup == k_HSteamNetPollGroup_Invalid)
-            FatalError("Failed to listen on port %d", nPort);
-        Printf("Server listening on port %d\n", nPort);
+            LocalUtils::FatalError("Failed to listen on port %d", nPort);
+        LocalUtils::Printf("Server listening on port %d\n", nPort);
 
         while (!g_bQuit)
         {
@@ -274,7 +140,7 @@ public:
         }
 
         // Close all the connections
-        Printf("Closing connections...\n");
+        LocalUtils::Printf("Closing connections...\n");
         for (auto it : m_mapClients)
         {
             // Send them one more goodbye message.  Note that we also have the
@@ -332,7 +198,7 @@ private:
             if (numMsgs == 0)
                 break;
             if (numMsgs < 0)
-                FatalError("Error checking for messages");
+                LocalUtils::FatalError("Error checking for messages");
             assert(numMsgs == 1 && pIncomingMsg);
             auto itClient = m_mapClients.find(pIncomingMsg->m_conn);
             assert(itClient != m_mapClients.end());
@@ -376,17 +242,17 @@ private:
     void PollLocalUserInput()
     {
         std::string cmd;
-        while (!g_bQuit && LocalUserInput_GetNext(cmd))
+        while (!g_bQuit && nonBlockingConsoleUserInput.LocalUserInput_GetNext(cmd))
         {
             if (strcmp(cmd.c_str(), "/quit") == 0)
             {
                 g_bQuit = true;
-                Printf("Shutting down server");
+                LocalUtils::Printf("Shutting down server");
                 break;
             }
 
             // That's the only command we support
-            Printf("The server only knows one command: '/quit'");
+            LocalUtils::Printf("The server only knows one command: '/quit'");
         }
     }
 
@@ -443,7 +309,7 @@ private:
                     // Spew something to our own log.  Note that because we put their nick
                     // as the connection description, it will show up, along with their
                     // transport-specific data (e.g. their IP address)
-                    Printf(
+                    LocalUtils::Printf(
                         "Connection %s %s, reason %d: %s\n", pInfo->m_info.m_szConnectionDescription, pszDebugLogAction,
                         pInfo->m_info.m_eEndReason, pInfo->m_info.m_szEndDebug);
 
@@ -472,7 +338,7 @@ private:
                 // This must be a new connection
                 assert(m_mapClients.find(pInfo->m_hConn) == m_mapClients.end());
 
-                Printf("Connection request from %s", pInfo->m_info.m_szConnectionDescription);
+                LocalUtils::Printf("Connection request from %s", pInfo->m_info.m_szConnectionDescription);
 
                 // A client is attempting to connect
                 // Try to accept the connection.
@@ -482,7 +348,7 @@ private:
                     // disconnected, the connection may already be half closed.  Just
                     // destroy whatever we have on our side.
                     m_pInterface->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
-                    Printf("Can't accept connection.  (It was already closed?)");
+                    LocalUtils::Printf("Can't accept connection.  (It was already closed?)");
                     break;
                 }
 
@@ -490,7 +356,7 @@ private:
                 if (!m_pInterface->SetConnectionPollGroup(pInfo->m_hConn, m_hPollGroup))
                 {
                     m_pInterface->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
-                    Printf("Failed to set poll group?");
+                    LocalUtils::Printf("Failed to set poll group?");
                     break;
                 }
 
@@ -566,7 +432,13 @@ ChatServer* ChatServer::s_pCallbackInstance = nullptr;
 
 class ChatClient
 {
+    NonBlockingConsoleUserInput& nonBlockingConsoleUserInput;
+    std::atomic<bool>& g_bQuit;
 public:
+    ChatClient(NonBlockingConsoleUserInput& nonBlockingConsoleUserInput, std::atomic<bool>& g_bQuit)
+      : nonBlockingConsoleUserInput(nonBlockingConsoleUserInput), g_bQuit(g_bQuit)
+    {}
+
     void Run(const SteamNetworkingIPAddr& serverAddr)
     {
         // Select instance to use.  For now we'll always use the default.
@@ -575,13 +447,13 @@ public:
         // Start connecting
         char szAddr[SteamNetworkingIPAddr::k_cchMaxString];
         serverAddr.ToString(szAddr, sizeof(szAddr), true);
-        Printf("Connecting to chat server at %s", szAddr);
+        LocalUtils::Printf("Connecting to chat server at %s", szAddr);
         SteamNetworkingConfigValue_t opt;
         opt.SetPtr(
             k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged, (void*)SteamNetConnectionStatusChangedCallback);
         m_hConnection = m_pInterface->ConnectByIPAddress(serverAddr, 1, &opt);
         if (m_hConnection == k_HSteamNetConnection_Invalid)
-            FatalError("Failed to create connection");
+            LocalUtils::FatalError("Failed to create connection");
 
         while (!g_bQuit)
         {
@@ -604,7 +476,7 @@ private:
             if (numMsgs == 0)
                 break;
             if (numMsgs < 0)
-                FatalError("Error checking for messages");
+                LocalUtils::FatalError("Error checking for messages");
 
             // Just echo anything we get from the server
             fwrite(pIncomingMsg->m_pData, 1, pIncomingMsg->m_cbSize, stdout);
@@ -618,13 +490,13 @@ private:
     void PollLocalUserInput()
     {
         std::string cmd;
-        while (!g_bQuit && LocalUserInput_GetNext(cmd))
+        while (!g_bQuit && nonBlockingConsoleUserInput.LocalUserInput_GetNext(cmd))
         {
             // Check for known commands
             if (strcmp(cmd.c_str(), "/quit") == 0)
             {
                 g_bQuit = true;
-                Printf("Disconnecting from chat server");
+                LocalUtils::Printf("Disconnecting from chat server");
 
                 // Close the connection gracefully.
                 // We use linger mode to ask for any remaining reliable data
@@ -661,20 +533,20 @@ private:
                 {
                     // Note: we could distinguish between a timeout, a rejected connection,
                     // or some other transport problem.
-                    Printf(
+                    LocalUtils::Printf(
                         "We sought the remote host, yet our efforts were met with defeat.  (%s)",
                         pInfo->m_info.m_szEndDebug);
                 }
                 else if (pInfo->m_info.m_eState == k_ESteamNetworkingConnectionState_ProblemDetectedLocally)
                 {
-                    Printf(
+                    LocalUtils::Printf(
                         "Alas, troubles beset us; we have lost contact with the host.  (%s)",
                         pInfo->m_info.m_szEndDebug);
                 }
                 else
                 {
                     // NOTE: We could check the reason code for a normal disconnection
-                    Printf("The host hath bidden us farewell.  (%s)", pInfo->m_info.m_szEndDebug);
+                    LocalUtils::Printf("The host hath bidden us farewell.  (%s)", pInfo->m_info.m_szEndDebug);
                 }
 
                 // Clean up the connection.  This is important!
@@ -694,7 +566,7 @@ private:
             break;
 
         case k_ESteamNetworkingConnectionState_Connected:
-            Printf("Connected to server OK");
+            LocalUtils::Printf("Connected to server OK");
             break;
 
         default:
@@ -762,7 +634,7 @@ int main(int argc, const char* argv[])
                 PrintUsageAndExit();
             nPort = atoi(argv[i]);
             if (nPort <= 0 || nPort > 65535)
-                FatalError("Invalid port %d", nPort);
+                LocalUtils::FatalError("Invalid port %d", nPort);
             continue;
         }
 
@@ -770,7 +642,7 @@ int main(int argc, const char* argv[])
         if (bClient && addrServer.IsIPv6AllZeros())
         {
             if (!addrServer.ParseString(argv[i]))
-                FatalError("Invalid server address '%s'", argv[i]);
+                LocalUtils::FatalError("Invalid server address '%s'", argv[i]);
             if (addrServer.m_port == 0)
                 addrServer.m_port = DEFAULT_SERVER_PORT;
             continue;
@@ -784,16 +656,19 @@ int main(int argc, const char* argv[])
     {
         // Create client and server sockets
         SteamNetworkingInitRAII steamNetworkingInitRAII;
-        LocalUserInput_Init(); // MY: Start the thread to read the user input.
+
+        // MY: Start the thread to read the user input.
+        std::atomic<bool> g_bQuit = {};
+        NonBlockingConsoleUserInput nonBlockingConsoleUserInput(g_bQuit);
 
         if (bClient)
         {
-            ChatClient client;
+            ChatClient client(nonBlockingConsoleUserInput, g_bQuit);
             client.Run(addrServer);
         }
         else
         {
-            ChatServer server;
+            ChatServer server(nonBlockingConsoleUserInput, g_bQuit);
             server.Run((uint16)nPort);
         }
     }
@@ -801,5 +676,5 @@ int main(int argc, const char* argv[])
     // Ug, why is there no simple solution for portable, non-blocking console user input?
     // Just nuke the process
     // LocalUserInput_Kill();
-    NukeProcess(0);
+    LocalUtils::NukeProcess(0);
 }

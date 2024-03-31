@@ -10,9 +10,11 @@ project(example_chat_vcpkg)
 find_package(GameNetworkingSockets CONFIG REQUIRED)
 
 # Our program only has one cpp file
-add_executable(
-    example_chat
-    example_chat.cpp)
+add_executable(example_chat
+    example_chat.cpp
+    local_utils.cpp
+    non_blocking_console_user_input.cpp
+)
 
 # This example links GameNetworkingSockets as a shared lib.
 target_link_libraries(example_chat GameNetworkingSockets::shared)
