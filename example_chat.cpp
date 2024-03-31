@@ -12,7 +12,6 @@
 #include <map>
 #include <mutex>
 #include <queue>
-#include <random>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -93,49 +92,53 @@ static void Printf(const char* fmt, ...)
     DebugOutput(k_ESteamNetworkingSocketsDebugOutputType_Msg, text);
 }
 
-static void InitSteamDatagramConnectionSockets()
+class SteamNetworkingInitRAII
 {
+public:
+    SteamNetworkingInitRAII()
+    {
 #ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
-    SteamDatagramErrMsg errMsg;
-    if (!GameNetworkingSockets_Init(nullptr, errMsg))
-        FatalError("GameNetworkingSockets_Init failed.  %s", errMsg);
+        SteamDatagramErrMsg errMsg;
+        if (!GameNetworkingSockets_Init(nullptr, errMsg))
+            throw std::runtime_error("[SteamNetworkingInitRAII] " + std::string(errMsg));
 #else
-    SteamDatagram_SetAppID(570); // Just set something, doesn't matter what
-    SteamDatagram_SetUniverse(false, k_EUniverseDev);
+        SteamDatagram_SetAppID(570); // Just set something, doesn't matter what
+        SteamDatagram_SetUniverse(false, k_EUniverseDev);
 
-    SteamDatagramErrMsg errMsg;
-    if (!SteamDatagramClient_Init(errMsg))
-        FatalError("SteamDatagramClient_Init failed.  %s", errMsg);
+        SteamDatagramErrMsg errMsg;
+        if (!SteamDatagramClient_Init(errMsg))
+            throw std::runtime_error("[SteamNetworkingInitRAII] " + std::string(errMsg));
 
-    // Disable authentication when running with Steam, for this
-    // example, since we're not a real app.
-    //
-    // Authentication is disabled automatically in the open-source
-    // version since we don't have a trusted third party to issue
-    // certs.
-    SteamNetworkingUtils()->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_IP_AllowWithoutAuth, 1);
+        // Disable authentication when running with Steam, for this
+        // example, since we're not a real app.
+        //
+        // Authentication is disabled automatically in the open-source
+        // version since we don't have a trusted third party to issue
+        // certs.
+        SteamNetworkingUtils()->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_IP_AllowWithoutAuth, 1);
 #endif
 
-    g_logTimeZero = SteamNetworkingUtils()->GetLocalTimestamp();
+        // TODO: remove it from here.
+        g_logTimeZero = SteamNetworkingUtils()->GetLocalTimestamp();
+        SteamNetworkingUtils()->SetDebugOutputFunction(k_ESteamNetworkingSocketsDebugOutputType_Msg, DebugOutput);
+    }
 
-    SteamNetworkingUtils()->SetDebugOutputFunction(k_ESteamNetworkingSocketsDebugOutputType_Msg, DebugOutput);
-}
-
-static void ShutdownSteamDatagramConnectionSockets()
-{
-    // Give connections time to finish up.  This is an application layer protocol
-    // here, it's not TCP.  Note that if you have an application and you need to be
-    // more sure about cleanup, you won't be able to do this.  You will need to send
-    // a message and then either wait for the peer to close the connection, or
-    // you can pool the connection to see if any reliable data is pending.
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    ~SteamNetworkingInitRAII()
+    {
+        // Give connections time to finish up.  This is an application layer protocol
+        // here, it's not TCP.  Note that if you have an application and you need to be
+        // more sure about cleanup, you won't be able to do this.  You will need to send
+        // a message and then either wait for the peer to close the connection, or
+        // you can pool the connection to see if any reliable data is pending.
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
 #ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
-    GameNetworkingSockets_Kill();
+        GameNetworkingSockets_Kill();
 #else
-    SteamDatagramClient_Kill();
+        SteamDatagramClient_Kill();
 #endif
-}
+    }
+};
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -258,10 +261,13 @@ public:
 
         while (!g_bQuit)
         {
-            PollIncomingMessages(); // MY: Recieve messages from clients until the ReceiveMessagesOnPollGroup is empty.
+            PollIncomingMessages(); // MY: Recieve messages from clients until the ReceiveMessagesOnPollGroup is
+                                    // empty.
             PollConnectionStateChanges(); // MY: Run all callbacks including OnSteamNetConnectionStatusChanged.
-                                          // - Case 01: Detect problems with connections and close them localy by API.
-                                          // - Case 02: AcceptConnection, SetConnectionPollGroup, Create Nickname, Send
+                                          // - Case 01: Detect problems with connections and close them localy by
+                                          // API.
+                                          // - Case 02: AcceptConnection, SetConnectionPollGroup, Create Nickname,
+                                          // Send
                                           //   Welcome message.
             PollLocalUserInput(); // MY: Check if the user has entered `/quit` command and set the g_bQuit flag.
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -775,23 +781,22 @@ int main(int argc, const char* argv[])
 
     if (bClient == bServer || (bClient && addrServer.IsIPv6AllZeros()))
         PrintUsageAndExit();
-
-    // Create client and server sockets
-    InitSteamDatagramConnectionSockets();
-    LocalUserInput_Init(); // MY: Start the thread to read the user input.
-
-    if (bClient)
     {
-        ChatClient client;
-        client.Run(addrServer);
-    }
-    else
-    {
-        ChatServer server;
-        server.Run((uint16)nPort);
-    }
+        // Create client and server sockets
+        SteamNetworkingInitRAII steamNetworkingInitRAII;
+        LocalUserInput_Init(); // MY: Start the thread to read the user input.
 
-    ShutdownSteamDatagramConnectionSockets();
+        if (bClient)
+        {
+            ChatClient client;
+            client.Run(addrServer);
+        }
+        else
+        {
+            ChatServer server;
+            server.Run((uint16)nPort);
+        }
+    }
 
     // Ug, why is there no simple solution for portable, non-blocking console user input?
     // Just nuke the process
