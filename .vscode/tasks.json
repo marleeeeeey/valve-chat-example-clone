@@ -1,8 +1,6 @@
 {
   "version": "2.0.0",
   "tasks": [
-
-    // remove build, vcpkg and vcpkg_install folders
     {
       "label": "(Windows) 00. Remove build, vcpkg and vcpkg_installed folders",
       "type": "shell",
