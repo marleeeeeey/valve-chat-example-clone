@@ -11,9 +11,10 @@
 #include <steam/steam_api.h>
 #endif
 
-#include <local_utils.h>
+// Static members initialization
+std::function<void(ESteamNetworkingSocketsDebugOutputType, const char*)> SteamNetworkingInitRAII::debugCallback;
 
-SteamNetworkingInitRAII::SteamNetworkingInitRAII()
+SteamNetworkingInitRAII::SteamNetworkingInitRAII(const Options& options) : options(options)
 {
 #ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
     SteamDatagramErrMsg errMsg;
@@ -36,11 +37,9 @@ SteamNetworkingInitRAII::SteamNetworkingInitRAII()
     SteamNetworkingUtils()->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_IP_AllowWithoutAuth, 1);
 #endif
 
-    // TODO: remove it from here.
-    LocalUtils::g_logTimeZero = SteamNetworkingUtils()->GetLocalTimestamp();
-    SteamNetworkingUtils()->SetDebugOutputFunction(
-        k_ESteamNetworkingSocketsDebugOutputType_Msg, LocalUtils::DebugOutput);
+    SteamNetworkingUtils()->SetDebugOutputFunction(options.debugSeverity, SteamNetworkingInitRAII::OnDebugOutput);
 }
+
 SteamNetworkingInitRAII::~SteamNetworkingInitRAII()
 {
     // Give connections time to finish up.  This is an application layer protocol
@@ -55,4 +54,16 @@ SteamNetworkingInitRAII::~SteamNetworkingInitRAII()
 #else
     SteamDatagramClient_Kill();
 #endif
+}
+
+void SteamNetworkingInitRAII::OnDebugOutput(ESteamNetworkingSocketsDebugOutputType eType, const char* pszMsg)
+{
+    if (debugCallback)
+        debugCallback(eType, pszMsg);
+}
+
+void SteamNetworkingInitRAII::SetDebugCallback(
+    std::function<void(ESteamNetworkingSocketsDebugOutputType, const char*)> callback)
+{
+    debugCallback = callback;
 }

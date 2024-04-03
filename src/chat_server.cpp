@@ -1,8 +1,9 @@
 #include "chat_server.h"
 #include <cassert>
-#include <local_utils.h>
+#include <my_cpp_utils/logger.h>
 #include <steam/isteamnetworkingutils.h>
 #include <steam/steamnetworkingsockets.h>
+#include <string>
 #include <thread>
 
 ChatServer* ChatServer::s_pCallbackInstance = nullptr;
@@ -14,7 +15,7 @@ ChatServer::ChatServer(NonBlockingConsoleUserInput& nonBlockingConsoleUserInput,
 void ChatServer::Run(uint16 nPort)
 {
     // Select instance to use.  For now we'll always use the default.
-    // But we could use SteamGameServerNetworkingSockets() on Steam.
+    // But we could use SteamChatServerNetworkingSockets() on Steam.
     pInterface = SteamNetworkingSockets();
 
     // Start listening
@@ -28,12 +29,13 @@ void ChatServer::Run(uint16 nPort)
 
     hListenSock = pInterface->CreateListenSocketIP(serverLocalAddr, 1, &opt);
     if (hListenSock == k_HSteamListenSocket_Invalid)
-        LocalUtils::FatalError("Failed to listen on port %d", nPort);
+        MY_LOG_FMT(error, "[ChatServer] Failed to listen on port {}", nPort);
 
     hPollGroup = pInterface->CreatePollGroup();
     if (hPollGroup == k_HSteamNetPollGroup_Invalid)
-        LocalUtils::FatalError("Failed to listen on port %d", nPort);
-    LocalUtils::Printf("Server listening on port %d\n", nPort);
+        MY_LOG_FMT(error, "[ChatServer] Failed to create poll group for server on port {}", nPort);
+
+    MY_LOG_FMT(info, "[ChatServer] Server listening on port {}", nPort);
 
     while (!quitFlag)
     {
@@ -50,7 +52,7 @@ void ChatServer::Run(uint16 nPort)
     }
 
     // Close all the connections
-    LocalUtils::Printf("Closing connections...\n");
+    MY_LOG(info, "[ChatServer] Closing connections...");
     for (auto it : mapClients)
     {
         // Send them one more goodbye message.  Note that we also have the
@@ -88,8 +90,6 @@ void ChatServer::SendStringToAllClients(const char* str, HSteamNetConnection exc
 
 void ChatServer::PollIncomingMessages()
 {
-    char temp[1024];
-
     while (!quitFlag)
     {
         ISteamNetworkingMessage* pIncomingMsg = nullptr;
@@ -97,35 +97,35 @@ void ChatServer::PollIncomingMessages()
         if (numMsgs == 0)
             break;
         if (numMsgs < 0)
-            LocalUtils::FatalError("Error checking for messages");
+            MY_LOG(error, "[ChatServer] Error checking for messages");
         assert(numMsgs == 1 && pIncomingMsg);
         auto itClient = mapClients.find(pIncomingMsg->m_conn);
         assert(itClient != mapClients.end());
 
         // '\0'-terminate it to make it easier to parse
-        std::string sCmd;
-        sCmd.assign((const char*)pIncomingMsg->m_pData, pIncomingMsg->m_cbSize);
-        const char* cmd = sCmd.c_str();
+        std::string incommingMessage;
+        incommingMessage.assign((const char*)pIncomingMsg->m_pData, pIncomingMsg->m_cbSize);
+        const char* incommingMessageCStyle = incommingMessage.c_str();
 
         // We don't need this anymore.
         pIncomingMsg->Release();
 
         // Check for known commands.  None of this example code is secure or robust.
         // Don't write a real server like this, please.
-
-        if (strncmp(cmd, "/nick", 5) == 0)
+        if (strncmp(incommingMessageCStyle, "/nick", 5) == 0)
         {
-            const char* nick = cmd + 5;
+            const char* nick = incommingMessageCStyle + 5;
             while (isspace(*nick))
                 ++nick;
 
             // Let everybody else know they changed their name
-            sprintf(temp, "%s shall henceforth be known as %s", itClient->second.m_sNick.c_str(), nick);
-            SendStringToAllClients(temp, itClient->first);
+            std::string changeNickNoticeToOthers =
+                MY_FMT("{} shall henceforth be known as {}", itClient->second.m_sNick, nick);
+            SendStringToAllClients(changeNickNoticeToOthers.c_str(), itClient->first);
 
-            // Respond to client
-            sprintf(temp, "Ye shall henceforth be known as %s", nick);
-            SendStringToClient(itClient->first, temp);
+            // Respond to client itself
+            std::string changeNickNoticeToItself = MY_FMT("Thou shalt henceforth be known as {}", nick);
+            SendStringToClient(itClient->first, changeNickNoticeToItself.c_str());
 
             // Actually change their name
             SetClientNick(itClient->first, nick);
@@ -133,8 +133,8 @@ void ChatServer::PollIncomingMessages()
         }
 
         // Assume it's just a ordinary chat message, dispatch to everybody else
-        sprintf(temp, "%s: %s", itClient->second.m_sNick.c_str(), cmd);
-        SendStringToAllClients(temp, itClient->first);
+        std::string ordinaryChatMessage = MY_FMT("{}: {}", itClient->second.m_sNick, incommingMessage);
+        SendStringToAllClients(ordinaryChatMessage.c_str(), itClient->first);
     }
 }
 
@@ -146,12 +146,12 @@ void ChatServer::PollLocalUserInput()
         if (strcmp(cmd.c_str(), "/quit") == 0)
         {
             quitFlag = true;
-            LocalUtils::Printf("Shutting down server");
+            MY_LOG(info, "[ChatServer] Shutting down server");
             break;
         }
 
         // That's the only command we support
-        LocalUtils::Printf("The server only knows one command: '/quit'");
+        MY_LOG_FMT(info, "[ChatServer] Unknown command: `{}`. The server only knows one command: '/quit'.", cmd);
     }
 }
 
@@ -166,8 +166,6 @@ void ChatServer::SetClientNick(HSteamNetConnection hConn, const char* nick)
 
 void ChatServer::OnSteamNetConnectionStatusChanged(SteamNetConnectionStatusChangedCallback_t* pInfo)
 {
-    char temp[1024];
-
     // What's the state of the connection?
     switch (pInfo->m_info.m_eState)
     {
@@ -189,33 +187,28 @@ void ChatServer::OnSteamNetConnectionStatusChanged(SteamNetConnectionStatusChang
                 assert(itClient != mapClients.end());
 
                 // Select appropriate log messages
-                const char* pszDebugLogAction;
+                std::string whatHappened;
                 if (pInfo->m_info.m_eState == k_ESteamNetworkingConnectionState_ProblemDetectedLocally)
                 {
-                    pszDebugLogAction = "problem detected locally";
-                    sprintf(
-                        temp, "Alas, %s hath fallen into shadow.  (%s)", itClient->second.m_sNick.c_str(),
+                    whatHappened = MY_FMT(
+                        "[ChatServer] Client {}: Problem detected locally. Desc={}. EndReason={}. EndDebug={}",
+                        itClient->second.m_sNick, pInfo->m_info.m_szConnectionDescription, pInfo->m_info.m_eEndReason,
                         pInfo->m_info.m_szEndDebug);
                 }
                 else
                 {
                     // Note that here we could check the reason code to see if
                     // it was a "usual" connection or an "unusual" one.
-                    pszDebugLogAction = "closed by peer";
-                    sprintf(temp, "%s hath departed", itClient->second.m_sNick.c_str());
+                    whatHappened = MY_FMT(
+                        "[ChatServer] Client {}: Closed by peer. Desc={}. EndReason={}. EndDebug={}",
+                        itClient->second.m_sNick, pInfo->m_info.m_szConnectionDescription, pInfo->m_info.m_eEndReason,
+                        pInfo->m_info.m_szEndDebug);
                 }
-
-                // Spew something to our own log.  Note that because we put their nick
-                // as the connection description, it will show up, along with their
-                // transport-specific data (e.g. their IP address)
-                LocalUtils::Printf(
-                    "Connection %s %s, reason %d: %s\n", pInfo->m_info.m_szConnectionDescription, pszDebugLogAction,
-                    pInfo->m_info.m_eEndReason, pInfo->m_info.m_szEndDebug);
 
                 mapClients.erase(itClient);
 
                 // Send a message so everybody else knows what happened
-                SendStringToAllClients(temp);
+                SendStringToAllClients(whatHappened.c_str());
             }
             else
             {
@@ -237,7 +230,7 @@ void ChatServer::OnSteamNetConnectionStatusChanged(SteamNetConnectionStatusChang
             // This must be a new connection
             assert(mapClients.find(pInfo->m_hConn) == mapClients.end());
 
-            LocalUtils::Printf("Connection request from %s", pInfo->m_info.m_szConnectionDescription);
+            MY_LOG_FMT(info, "[ChatServer] Connection request from {}", pInfo->m_info.m_szConnectionDescription);
 
             // A client is attempting to connect
             // Try to accept the connection.
@@ -247,7 +240,9 @@ void ChatServer::OnSteamNetConnectionStatusChanged(SteamNetConnectionStatusChang
                 // disconnected, the connection may already be half closed.  Just
                 // destroy whatever we have on our side.
                 pInterface->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
-                LocalUtils::Printf("Can't accept connection.  (It was already closed?)");
+                MY_LOG_FMT(
+                    warn, "[ChatServer] Failed to accept connection from {}. (It was already closed?)",
+                    pInfo->m_info.m_szConnectionDescription);
                 break;
             }
 
@@ -255,7 +250,7 @@ void ChatServer::OnSteamNetConnectionStatusChanged(SteamNetConnectionStatusChang
             if (!pInterface->SetConnectionPollGroup(pInfo->m_hConn, hPollGroup))
             {
                 pInterface->CloseConnection(pInfo->m_hConn, 0, nullptr, false);
-                LocalUtils::Printf("Failed to set poll group?");
+                MY_LOG_FMT(warn, "[ChatServer] Failed to set poll group?");
                 break;
             }
 
@@ -269,27 +264,26 @@ void ChatServer::OnSteamNetConnectionStatusChanged(SteamNetConnectionStatusChang
             sprintf(nick, "BraveWarrior%d", 10000 + (rand() % 100000));
 
             // Send them a welcome message
-            sprintf(
-                temp,
-                "Welcome, stranger.  Thou art known to us for now as '%s'; upon thine command '/nick' we shall know thee otherwise.",
+            std::string welcomeMsg = MY_FMT(
+                "Welcome, stranger. Thou art known to us for now as '{}'; upon thine command '/nick' we shall know thee otherwise.",
                 nick);
-            SendStringToClient(pInfo->m_hConn, temp);
+            SendStringToClient(pInfo->m_hConn, welcomeMsg.c_str());
 
             // Also send them a list of everybody who is already connected
             if (mapClients.empty())
             {
-                SendStringToClient(pInfo->m_hConn, "Thou art utterly alone.");
+                SendStringToClient(pInfo->m_hConn, "You are alone in the chat.");
             }
             else
             {
-                sprintf(temp, "%d companions greet you:", (int)mapClients.size());
                 for (auto& c : mapClients)
                     SendStringToClient(pInfo->m_hConn, c.second.m_sNick.c_str());
             }
 
             // Let everybody else know who they are for now
-            sprintf(temp, "Hark!  A stranger hath joined this merry host.  For now we shall call them '%s'", nick);
-            SendStringToAllClients(temp, pInfo->m_hConn);
+            std::string greetingFromClient =
+                MY_FMT("Hark! A stranger hath joined this merry host. For now we shall call them '{}'", nick);
+            SendStringToAllClients(greetingFromClient.c_str(), pInfo->m_hConn);
 
             // Add them to the client list, using std::map wacky syntax
             mapClients[pInfo->m_hConn];

@@ -17,7 +17,7 @@
       "command": "cls",
     },
     {
-      "label": "(Windows) 10. Configure",
+      "label": "(Windows) 10. + Configure",
       "type": "shell",
       "command": "cmake -S . -B build -G \"Ninja\" -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_TOOLCHAIN_FILE=vcpkg/scripts/buildsystems/vcpkg.cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
       "dependsOn": [
@@ -25,29 +25,23 @@
       ]
     },
     {
-      "label": "(Windows) 20. Build",
+      "label": "(Windows) 20. + Build",
       "type": "shell",
       "command": "cmake --build build -- -k 0", // stop on first error
       // "command": "cmake --build build", // continue on error
       "dependsOn": [
-        "(Windows) 10. Configure"
+        "(Windows) 10. + Configure"
       ]
     },
     {
-      "label": "(Windows) 60. Run Server",
+      "label": "(Windows) 60. Run Server (Detached)",
       "type": "shell",
-      "command": "start build/example_chat.exe server",
-      "dependsOn": [
-        // "(Windows) 20. Build"
-      ]
+      "command": "start build/example_chat.exe server"
     },
     {
-      "label": "(Windows) 70. Run Client",
+      "label": "(Windows) 70. Run Client (Detached)",
       "type": "shell",
-      "command": "start build/example_chat.exe client 127.0.0.1",
-      "dependsOn": [
-        // "(Windows) 20. Build"
-      ]
+      "command": "start build/example_chat.exe client 127.0.0.1"
     }
   ]
 }

@@ -1,7 +1,7 @@
 #include "app_options.h"
 #include <chat_client.h>
 #include <chat_server.h>
-#include <local_utils.h>
+#include <my_cpp_utils/logger.h>
 #include <non_blocking_console_user_input.h>
 #include <stdio.h>
 #include <steam/isteamnetworkingutils.h>
@@ -52,7 +52,7 @@ AppOptions ReadAppOptions(int argc, const char* argv[])
                 PrintUsageAndExit();
             nPort = atoi(argv[i]);
             if (nPort <= 0 || nPort > 65535)
-                LocalUtils::FatalError("Invalid port %d", nPort);
+                MY_LOG_FMT(error, "Invalid port {}", nPort);
             continue;
         }
 
@@ -60,7 +60,7 @@ AppOptions ReadAppOptions(int argc, const char* argv[])
         if (bClient && addrServer.IsIPv6AllZeros())
         {
             if (!addrServer.ParseString(argv[i]))
-                LocalUtils::FatalError("Invalid server address '%s'", argv[i]);
+                MY_LOG_FMT(error, "Invalid server address '{}'", argv[i]);
             if (addrServer.m_port == 0)
                 addrServer.m_port = DEFAULT_SERVER_PORT;
             continue;

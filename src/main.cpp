@@ -8,7 +8,6 @@
 #include <atomic>
 #include <chat_client.h>
 #include <chat_server.h>
-#include <local_utils.h>
 #include <my_cpp_utils/logger.h>
 #include <non_blocking_console_user_input.h>
 #include <steam/isteamnetworkingutils.h>
@@ -24,8 +23,14 @@ int main(int argc, const char* argv[])
     {
         AppOptions options = ReadAppOptions(argc, argv);
 
-        // Initialize SteamNetworkingSockets
-        SteamNetworkingInitRAII steamNetworkingInitRAII;
+        // Initialize the SteamNetworkingSockets library.
+        SteamNetworkingInitRAII::Options steamNetworkingOptions;
+        steamNetworkingOptions.debugSeverity = k_ESteamNetworkingSocketsDebugOutputType_Msg;
+        MY_LOG_FMT(info, "[SteamNetworking] debugSeverity: {}", steamNetworkingOptions.debugSeverity);
+        SteamNetworkingInitRAII steamNetworkingInitRAII(steamNetworkingOptions);
+        SteamNetworkingInitRAII::SetDebugCallback(
+            []([[maybe_unused]] ESteamNetworkingSocketsDebugOutputType eType, const char* pszMsg)
+            { MY_LOG_FMT(info, "[DebugOutput] {}", pszMsg); });
 
         // Start the thread to read the user input.
         std::atomic<bool> appQuitFlag = {};
@@ -42,6 +47,4 @@ int main(int argc, const char* argv[])
             server.Run((uint16)options.nPort);
         }
     }
-
-    LocalUtils::NukeProcess(0);
 }

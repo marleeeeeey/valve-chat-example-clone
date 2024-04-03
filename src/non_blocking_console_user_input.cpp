@@ -1,5 +1,6 @@
 #include "non_blocking_console_user_input.h"
-#include <local_utils.h>
+#include "my_cpp_utils/logger.h"
+#include "my_cpp_utils/string_utils.h"
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -19,7 +20,7 @@ NonBlockingConsoleUserInput::NonBlockingConsoleUserInput(std::atomic<bool>& quit
                     if (quitFlag)
                         return;
                     quitFlag = true;
-                    LocalUtils::Printf("Failed to read on stdin, quitting\n");
+                    MY_LOG(warn, "Failed to read on stdin, quitting");
                     break;
                 }
 
@@ -48,8 +49,7 @@ bool NonBlockingConsoleUserInput::GetNext(std::string& result)
     {
         result = queueUserInput.front();
         queueUserInput.pop();
-        LocalUtils::ltrim(result);
-        LocalUtils::rtrim(result);
+        utils::Trim(result);
         got_input = !result.empty(); // ignore blank lines
     }
     return got_input;

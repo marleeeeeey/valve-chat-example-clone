@@ -1,6 +1,6 @@
 #include "chat_client.h"
 #include <cassert>
-#include <local_utils.h>
+#include <my_cpp_utils/logger.h>
 #include <steam/isteamnetworkingutils.h>
 #include <steam/steamnetworkingsockets.h>
 #include <thread>
@@ -19,13 +19,13 @@ void ChatClient::Run(const SteamNetworkingIPAddr& serverAddr)
     // Start connecting
     char szAddr[SteamNetworkingIPAddr::k_cchMaxString];
     serverAddr.ToString(szAddr, sizeof(szAddr), true);
-    LocalUtils::Printf("Connecting to chat server at %s", szAddr);
+    MY_LOG_FMT(info, "Connecting to chat server at {}", szAddr);
     SteamNetworkingConfigValue_t opt;
     opt.SetPtr(
         k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged, (void*)SteamNetConnectionStatusChangedCallback);
     m_hConnection = m_pInterface->ConnectByIPAddress(serverAddr, 1, &opt);
     if (m_hConnection == k_HSteamNetConnection_Invalid)
-        LocalUtils::FatalError("Failed to create connection");
+        MY_LOG(error, "Failed to create connection");
 
     while (!quitFlag)
     {
@@ -45,7 +45,7 @@ void ChatClient::PollIncomingMessages()
         if (numMsgs == 0)
             break;
         if (numMsgs < 0)
-            LocalUtils::FatalError("Error checking for messages");
+            MY_LOG(error, "Error checking for messages");
 
         // Just echo anything we get from the server
         fwrite(pIncomingMsg->m_pData, 1, pIncomingMsg->m_cbSize, stdout);
@@ -65,7 +65,7 @@ void ChatClient::PollLocalUserInput()
         if (strcmp(cmd.c_str(), "/quit") == 0)
         {
             quitFlag = true;
-            LocalUtils::Printf("Disconnecting from chat server");
+            MY_LOG(info, "Disconnecting from chat server");
 
             // Close the connection gracefully.
             // We use linger mode to ask for any remaining reliable data
@@ -102,19 +102,20 @@ void ChatClient::OnSteamNetConnectionStatusChanged(SteamNetConnectionStatusChang
             {
                 // Note: we could distinguish between a timeout, a rejected connection,
                 // or some other transport problem.
-                LocalUtils::Printf(
-                    "We sought the remote host, yet our efforts were met with defeat.  (%s)",
+                MY_LOG_FMT(
+                    error, "We sought the remote host, yet our efforts were met with defeat. ({})",
                     pInfo->m_info.m_szEndDebug);
             }
             else if (pInfo->m_info.m_eState == k_ESteamNetworkingConnectionState_ProblemDetectedLocally)
             {
-                LocalUtils::Printf(
-                    "Alas, troubles beset us; we have lost contact with the host.  (%s)", pInfo->m_info.m_szEndDebug);
+                MY_LOG_FMT(
+                    error, "Alas, troubles beset us; we have lost contact with the host.  ({})",
+                    pInfo->m_info.m_szEndDebug);
             }
             else
             {
                 // NOTE: We could check the reason code for a normal disconnection
-                LocalUtils::Printf("The host hath bidden us farewell.  (%s)", pInfo->m_info.m_szEndDebug);
+                MY_LOG_FMT(error, "The host hath bidden us farewell.  ({})", pInfo->m_info.m_szEndDebug);
             }
 
             // Clean up the connection.  This is important!
@@ -134,7 +135,7 @@ void ChatClient::OnSteamNetConnectionStatusChanged(SteamNetConnectionStatusChang
         break;
 
     case k_ESteamNetworkingConnectionState_Connected:
-        LocalUtils::Printf("Connected to server OK");
+        MY_LOG(info, "Connected to server OK");
         break;
 
     default:
