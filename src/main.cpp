@@ -16,12 +16,14 @@
 
 int main(int argc, const char* argv[])
 {
-    // Initialize the logger
-    utils::Logger::Init("chat.log", spdlog::level::trace);
-    MY_LOG(info, "Starting chat application");
-
     {
         AppOptions options = ReadAppOptions(argc, argv);
+
+        // Initialize the logger
+
+        std::string logName = options.bClient ? "chat_client.log" : "chat_server.log";
+        utils::Logger::Init(logName, spdlog::level::trace);
+        MY_LOG(info, "Starting chat application");
 
         // Initialize the SteamNetworkingSockets library.
         SteamNetworkingInitRAII::Options steamNetworkingOptions;
