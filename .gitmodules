@@ -1,0 +1,3 @@
+[submodule "thirdparty/my_cpp_utils"]
+	path = thirdparty/my_cpp_utils
+	url = git@github.com:marleeeeeey/my_cpp_utils.git

@@ -1,7 +1,13 @@
 {
-	"$schema": "https://raw.githubusercontent.com/microsoft/vcpkg/master/scripts/vcpkg.schema.json",
-	"name": "gamenetworkingsockets-vcpkg-example",
-	"version-string": "1.0",
-	"description": "Example app that uses vcpkg to declare dependencies and fetch gamenetworkingsockets",
-	"dependencies": [ "gamenetworkingsockets" ]
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg/master/scripts/vcpkg.schema.json",
+  "name": "gamenetworkingsockets-vcpkg-example",
+  "version-string": "1.0",
+  "description": "Example app that uses vcpkg to declare dependencies and fetch gamenetworkingsockets",
+  "dependencies": [
+    "gamenetworkingsockets",
+    "magic-enum",
+    "nlohmann-json",
+    "glm",
+    "spdlog"
+  ]
 }

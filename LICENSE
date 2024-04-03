@@ -18,7 +18,7 @@ freely, subject to the following restrictions:
 
 ***
 
-This project includes software developed by Valve Corporation and licensed under the BSD 3-Clause License.
+This project uses steamnetworkingsockets developed by Valve Corporation and licensed under the BSD 3-Clause License.
 
 Copyright (c) 2018, Valve Corporation
 All rights reserved.

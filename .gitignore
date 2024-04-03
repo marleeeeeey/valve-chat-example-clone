@@ -2,3 +2,4 @@ vcpkg
 vcpkg_installed
 .cache
 build
+*.log

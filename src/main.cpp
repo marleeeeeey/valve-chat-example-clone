@@ -9,6 +9,7 @@
 #include <chat_client.h>
 #include <chat_server.h>
 #include <local_utils.h>
+#include <my_cpp_utils/logger.h>
 #include <non_blocking_console_user_input.h>
 #include <steam/isteamnetworkingutils.h>
 #include <steam/steamnetworkingsockets.h>
@@ -16,6 +17,10 @@
 
 int main(int argc, const char* argv[])
 {
+    // Initialize the logger
+    utils::Logger::Init("chat.log", spdlog::level::trace);
+    MY_LOG(info, "Starting chat application");
+
     {
         AppOptions options = ReadAppOptions(argc, argv);
 
